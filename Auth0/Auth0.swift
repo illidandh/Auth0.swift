@@ -22,7 +22,7 @@
 
 import Foundation
 
-public struct Auth0 {}
+func auth0(){}
 
 /**
  Auth0 Authentication API to authenticate your user using a Database, Social, Enterprise or Passwordless connections
