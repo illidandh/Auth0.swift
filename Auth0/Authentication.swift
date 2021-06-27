@@ -214,7 +214,7 @@ public protocol Authentication: Trackable, Loggable {
      - requires: Grant `http://auth0.com/oauth/grant-type/password-realm`. Check [our documentation](https://auth0.com/docs/clients/client-grant-types) for more info and how to enable it.
      */
     // swiftlint:disable:next function_parameter_count
-    func login(usernameOrEmail username: String, password: String, realm: String, audience: String?, scope: String?, parameters: [String: Any]?) -> Request<Credentials, AuthenticationError>
+    func login(usernameOrEmail username: String, password: String, realm: String, audience: String?, scope: String?, parameters: [String: Any]?, headers: [String: String]) -> Request<Credentials, AuthenticationError>
 
     /**
      Login using One Time Password and MFA token.
@@ -954,8 +954,8 @@ public extension Authentication {
      - Returns: authentication request that will yield Auth0 User Credentials
      - requires: Grant `http://auth0.com/oauth/grant-type/password-realm`. Check [our documentation](https://auth0.com/docs/clients/client-grant-types) for more info and how to enable it.
      */
-    func login(usernameOrEmail username: String, password: String, realm: String, audience: String? = nil, scope: String? = nil, parameters: [String: Any]? = nil) -> Request<Credentials, AuthenticationError> {
-        return self.login(usernameOrEmail: username, password: password, realm: realm, audience: audience, scope: scope, parameters: parameters)
+    func login(usernameOrEmail username: String, password: String, realm: String, audience: String? = nil, scope: String? = nil, parameters: [String: Any]? = nil, headers: [String: String] = [:]) -> Request<Credentials, AuthenticationError> {
+        return self.login(usernameOrEmail: username, password: password, realm: realm, audience: audience, scope: scope, parameters: parameters, headers: headers)
     }
 
     /**
