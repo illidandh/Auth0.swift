@@ -90,8 +90,8 @@ struct Auth0Authentication: Authentication {
                        url: resourceOwner,
                        method: "POST",
                        handle: authenticationObject,
-                       headers: headers,
                        payload: payload,
+                       headers: headers,
                        logger: self.logger,
                        telemetry: self.telemetry)
     }
