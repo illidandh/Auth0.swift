@@ -59,7 +59,7 @@ public struct Request<T, E: Auth0Error>: Requestable {
         self.telemetry = telemetry
     }
 
-    var request: URLRequest {
+    public var request: URLRequest {
         let request = NSMutableURLRequest(url: url)
         request.httpMethod = method
         if !payload.isEmpty, let httpBody = try? JSONSerialization.data(withJSONObject: payload, options: []) {
