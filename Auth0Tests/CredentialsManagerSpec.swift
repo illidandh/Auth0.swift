@@ -228,6 +228,36 @@ class CredentialsManagerSpec: QuickSpec {
             
         }
 
+        describe("user") {
+            
+            afterEach {
+                _ = credentialsManager.clear()
+            }
+
+            it("should retrieve the user profile when there is an id token stored") {
+                let credentials = Credentials(idToken: ValidToken, expiresIn: Date(timeIntervalSinceNow: ExpiresIn))
+                expect(credentialsManager.store(credentials: credentials)).to(beTrue())
+                expect(credentialsManager.user).toNot(beNil())
+            }
+
+            it("should not retrieve the user profile when there are no credentials stored") {
+                expect(credentialsManager.user).to(beNil())
+            }
+
+            it("should not retrieve the user profile when the credentials have no id token") {
+                let credentials = Credentials(accessToken: AccessToken, idToken: nil, expiresIn: Date(timeIntervalSinceNow: ExpiresIn))
+                expect(credentialsManager.store(credentials: credentials)).to(beTrue())
+                expect(credentialsManager.user).to(beNil())
+            }
+
+            it("should not retrieve the user profile when the id token is not a jwt") {
+                let credentials = Credentials(accessToken: AccessToken, idToken: "not a jwt", expiresIn: Date(timeIntervalSinceNow: ExpiresIn))
+                expect(credentialsManager.store(credentials: credentials)).to(beTrue())
+                expect(credentialsManager.user).to(beNil())
+            }
+            
+        }
+
         describe("validity") {
 
             afterEach {
@@ -500,6 +530,23 @@ class CredentialsManagerSpec: QuickSpec {
                     }
                 }
 
+                it("request should include custom parameters on renew") {
+                    let someId = UUID().uuidString
+                    stub(condition: isToken(Domain) && hasAtLeast(["refresh_token": RefreshToken, "some_id": someId])) {
+                        _ in return authResponse(accessToken: NewAccessToken, idToken: NewIdToken, refreshToken: NewRefreshToken, expiresIn: 86400)
+                    }
+                    credentials = Credentials(accessToken: AccessToken, tokenType: TokenType, idToken: IdToken, refreshToken: RefreshToken, expiresIn: Date(timeIntervalSinceNow: -3600))
+                    _ = credentialsManager.store(credentials: credentials)
+                    waitUntil(timeout: Timeout) { done in
+                        credentialsManager.credentials(parameters: ["some_id": someId]) { error = $0; newCredentials = $1
+                            expect(error).to(beNil())
+                            expect(newCredentials?.accessToken) == NewAccessToken
+                            expect(newCredentials?.refreshToken) == NewRefreshToken
+                            expect(newCredentials?.idToken) == NewIdToken
+                            done()
+                        }
+                    }
+                }
             }
 
             context("forced renew") {

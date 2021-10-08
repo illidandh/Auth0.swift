@@ -5,13 +5,9 @@
 [![Version](https://img.shields.io/cocoapods/v/Auth0.svg?style=flat-square)](https://cocoadocs.org/docsets/Auth0)
 [![License](https://img.shields.io/cocoapods/l/Auth0.svg?style=flat-square)](https://cocoadocs.org/docsets/Auth0)
 [![Platform](https://img.shields.io/cocoapods/p/Auth0.svg?style=flat-square)](https://cocoadocs.org/docsets/Auth0)
-![Swift 5.3](https://img.shields.io/badge/Swift-5.3-orange.svg?style=flat-square)
+![Swift 5.5](https://img.shields.io/badge/Swift-5.5-orange.svg?style=flat-square)
 
 Swift toolkit that lets you communicate efficiently with many of the [Auth0 API](https://auth0.com/docs/api/info) functions and enables you to seamlessly integrate the Auth0 login.
-
-## Important Notices
-
-[Behaviour changes in iOS 13](https://github.com/auth0/Auth0.swift/pull/297) related to Web Authentication require that developers using Xcode 11 with this library **must** compile using Swift 5.x. This *should* be the default setting applied when updating, unless it has been manually set. However, we recommend checking that this value is set correctly.
 
 ## Table of Contents
 
@@ -28,7 +24,7 @@ Swift toolkit that lets you communicate efficiently with many of the [Auth0 API]
 ## Requirements
 
 - iOS 9+ / macOS 10.11+ / tvOS 9.0+ / watchOS 2.0+
-- Xcode 11.4+ / 12.x
+- Xcode 12.x / 13.x
 - Swift 4.x / 5.x
 
 ## Installation
@@ -38,7 +34,7 @@ Swift toolkit that lets you communicate efficiently with many of the [Auth0 API]
 If you are using [Cocoapods](https://cocoapods.org), add this line to your `Podfile`:
 
 ```ruby
-pod 'Auth0', '~> 1.33'
+pod 'Auth0', '~> 1.36'
 ```
 
 Then run `pod install`.
@@ -50,10 +46,10 @@ Then run `pod install`.
 If you are using [Carthage](https://github.com/Carthage/Carthage), add the following line to your `Cartfile`:
 
 ```ruby
-github "auth0/Auth0.swift" ~> 1.33
+github "auth0/Auth0.swift" ~> 1.36
 ```
 
-Then run `carthage bootstrap`.
+Then run `carthage bootstrap --use-xcframeworks`.
 
 > For more information about Carthage usage, check [their official documentation](https://github.com/Carthage/Carthage#if-youre-building-for-ios-tvos-or-watchos).
 
@@ -99,21 +95,11 @@ Auth0
 
 > This snippet sets the `audience` to ensure OIDC compliant responses, this can also be achieved by enabling the **OIDC Conformant** switch in your Auth0 dashboard under `Application / Settings / Advanced / OAuth`.
 
-3. Allow Auth0 to handle authentication callbacks. In your `AppDelegate.swift`, add the following:
-
-#### iOS
+3. If your app targets iOS <11, allow Auth0 to handle authentication callbacks (otherwise, skip this step). In your `AppDelegate.swift`, add the following:
 
 ```swift
 func application(_ app: UIApplication, open url: URL, options: [UIApplicationOpenURLOptionsKey: Any]) -> Bool {
     return Auth0.resumeAuth(url)
-}
-```
-
-#### macOS
-
-```swift
-func application(_ application: NSApplication, open urls: [URL]) {
-    Auth0.resumeAuth(urls)
 }
 ```
 
@@ -230,11 +216,42 @@ Auth0
     }
 ```
 
+#### Signup with Universal Login
+
+You can make users land directly on the Signup page instead of the Login page by specifying the `"screen_hint": "signup"` parameter when performing Web Authentication. Note that this can be combined with `"prompt": "login"`, which indicates whether you want to always show the authentication page or you want to skip if there's an existing session.
+
+| Parameters                                     | No existing session   | Existing session              |
+|:-----------------------------------------------|:----------------------|:------------------------------|
+| no extra parameters                            | Shows the login page  | Redirects to the callback url |
+| `"screen_hint": "signup"`                      | Shows the signup page | Redirects to the callback url |
+| `"prompt": "login"`                            | Shows the login page  | Shows the login page          |
+| `"prompt": "login", "screen_hint": "signup"`   | Shows the signup page | Shows the signup page         |
+
+```swift
+Auth0
+    .webAuth()
+    .parameters(["screen_hint": "signup"])
+    .start { result in
+        switch result {
+        case .success(let credentials):
+            print("Obtained credentials: \(credentials)")
+        case .failure(let error):
+            print("Failed with \(error)")
+        }
+    }
+```
+
+> The `screen_hint` parameter can only be used with the **New Universal Login Experience**, not the **Classic Experience**.
+
 #### Disable Single Sign On Consent Alert (iOS 13+ / macOS)
 
-To suppress the alert box, add the `useEphemeralSession()` method to the chain. This has the impact of disabling [Single Sign On (SSO)](https://auth0.com/docs/sso) on iOS 13+ and macOS, but will also not display the consent alert that otherwise shows up when SSO is enabled. It has no effect on older versions of iOS.
+This SDK uses `ASWebAuthenticationSession` under the hood to perform Web Authentication on iOS 12+ and macOS. It is Apple's current API for performing web-based authentication. By default, `ASWebAuthenticationSession` will store the Web Authentication cookies in Safari's shared cookie jar. This makes [Single Sign On (SSO)](https://auth0.com/docs/sso) possible, but it also means that `ASWebAuthenticationSession` will prompt the user for consent.
 
 ![sso-alert](./sso-alert.png)
+
+To suppress the alert box, add the `useEphemeralSession()` method to the chain. Doing so will make the SDK configure `ASWebAuthenticationSession` with `prefersEphemeralWebBrowserSession` enabled. This will disable SSO, but will also not display the consent alert that otherwise shows up when SSO is enabled. 
+
+ > `prefersEphemeralWebBrowserSession` is only available on iOS 13+ and macOS, so `useEphemeralSession()` will have no effect on older versions of iOS. For more information on `prefersEphemeralBrowserSession`, check [its documentation](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/3237231-prefersephemeralwebbrowsersessio).
 
 ```swift
 Auth0
@@ -250,6 +267,8 @@ Auth0
         }
     }
 ```
+
+If you're using `useEphemeralSession()`, you do not need to call `clearSession()` to perform logout as there will be no cookies to remove. Just deleting the credentials will suffice. 
 
 ### Credentials Management Utility
 
@@ -308,6 +327,12 @@ You can enable an additional level of user authentication before retrieving cred
 
 ```swift
 credentialsManager.enableBiometrics(withTitle: "Touch to Login")
+```
+
+If needed, you are able to specify specific `LAPolicy` to be used - i.e. you might want to support FaceID, but allow fallback to pin code.
+
+```swift
+credentialsManager.enableBiometrics(withTitle: "Touch or enter pincode to Login", evaluationPolicy: .deviceOwnerAuthentication)
 ```
 
 ### Native Social Login

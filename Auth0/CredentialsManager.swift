@@ -49,7 +49,21 @@ public struct CredentialsManager {
         self.storage = storage
     }
 
-    /// Enable Touch ID Authentication for additional security during credentials retrieval.
+    /// Retrieve the user profile from keychain synchronously, without checking if the credentials are expired
+    ///
+    /// ```
+    /// let user = credentialsManager.user
+    /// ```
+    /// - Important: Access to this property will not be protected by Biometric Authentication.
+    public var user: UserInfo? {
+        guard let credentials = retrieveCredentials(),
+            let idToken = credentials.idToken,
+            let jwt = try? decode(jwt: idToken) else { return nil }
+
+        return UserInfo(json: jwt.body)
+    }
+
+    /// Enable Biometric Authentication for additional security during credentials retrieval
     ///
     /// - Parameters:
     ///   - title: main message to display in TouchID prompt
@@ -57,20 +71,23 @@ public struct CredentialsManager {
     ///   - fallbackTitle: fallback message to display in TouchID prompt after a failed match
     #if WEB_AUTH_PLATFORM
     @available(*, deprecated, message: "see enableBiometrics(withTitle title:, cancelTitle:, fallbackTitle:)")
+    @available(iOS 9.0, macOS 10.15, *)
     public mutating func enableTouchAuth(withTitle title: String, cancelTitle: String? = nil, fallbackTitle: String? = nil) {
         self.enableBiometrics(withTitle: title, cancelTitle: cancelTitle, fallbackTitle: fallbackTitle)
     }
     #endif
 
-    /// Enable Biometric Authentication for additional security during credentials retrieval.
+    #if WEB_AUTH_PLATFORM
+    /// Enable Biometric Authentication for additional security during credentials retrieval
     ///
     /// - Parameters:
     ///   - title: main message to display when Touch ID is used
     ///   - cancelTitle: cancel message to display when Touch ID is used (iOS 10+)
     ///   - fallbackTitle: fallback message to display when Touch ID is used after a failed match
-    #if WEB_AUTH_PLATFORM
-    public mutating func enableBiometrics(withTitle title: String, cancelTitle: String? = nil, fallbackTitle: String? = nil) {
-        self.bioAuth = BioAuthentication(authContext: LAContext(), title: title, cancelTitle: cancelTitle, fallbackTitle: fallbackTitle)
+    ///   - evaluationPolicy: policy to be used for authentication policy evaluation
+    @available(iOS 9.0, macOS 10.15, *)
+    public mutating func enableBiometrics(withTitle title: String, cancelTitle: String? = nil, fallbackTitle: String? = nil, evaluationPolicy: LAPolicy = LAPolicy.deviceOwnerAuthenticationWithBiometrics) {
+        self.bioAuth = BioAuthentication(authContext: LAContext(), evaluationPolicy: evaluationPolicy, title: title, cancelTitle: cancelTitle, fallbackTitle: fallbackTitle)
     }
     #endif
 
@@ -147,11 +164,12 @@ public struct CredentialsManager {
     /// - Parameters:
     ///   - scope: scopes to request for the new tokens. By default is nil which will ask for the same ones requested during original Auth.
     ///   - minTTL: minimum time in seconds the access token must remain valid to avoid being renewed.
+    ///   - parameters: additional parameters to add to a possible token refresh. The parameters will be set via Request.payload.
     ///   - callback: callback with the user's credentials or the cause of the error.
     /// - Important: This method only works for a refresh token obtained after auth with OAuth 2.0 API Authorization.
     /// - Note: [Auth0 Refresh Tokens Docs](https://auth0.com/docs/tokens/concepts/refresh-tokens)
     #if WEB_AUTH_PLATFORM
-    public func credentials(withScope scope: String? = nil, minTTL: Int = 0, callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
+    public func credentials(withScope scope: String? = nil, minTTL: Int = 0, parameters: [String: Any] = [:], callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
         guard self.hasValid(minTTL: minTTL) else { return callback(.noCredentials, nil) }
         if #available(iOS 9.0, macOS 10.15, *), let bioAuth = self.bioAuth {
             guard bioAuth.available else { return callback(.touchFailed(LAError(LAError.touchIDNotAvailable)), nil) }
@@ -159,52 +177,61 @@ public struct CredentialsManager {
                 guard $0 == nil else {
                     return callback(.touchFailed($0!), nil)
                 }
-                self.retrieveCredentials(withScope: scope, minTTL: minTTL, callback: callback)
+                self.retrieveCredentials(withScope: scope, minTTL: minTTL, parameters: parameters, callback: callback)
             }
         } else {
-            self.retrieveCredentials(withScope: scope, minTTL: minTTL, callback: callback)
+            self.retrieveCredentials(withScope: scope, minTTL: minTTL, parameters: parameters, callback: callback)
         }
     }
     #else
-    public func credentials(withScope scope: String? = nil, minTTL: Int = 0, callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
+    public func credentials(withScope scope: String? = nil, minTTL: Int = 0, parameters: [String: Any] = [:], callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
         guard self.hasValid(minTTL: minTTL) else { return callback(.noCredentials, nil) }
-        self.retrieveCredentials(withScope: scope, minTTL: minTTL, callback: callback)
+        self.retrieveCredentials(withScope: scope, minTTL: minTTL, parameters: parameters, callback: callback)
     }
     #endif
 
-    private func retrieveCredentials(withScope scope: String?, minTTL: Int, callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
+    private func retrieveCredentials() -> Credentials? {
         guard let data = self.storage.data(forKey: self.storeKey),
-            let credentials = NSKeyedUnarchiver.unarchiveObject(with: data) as? Credentials else { return callback(.noCredentials, nil) }
-        guard let expiresIn = credentials.expiresIn else { return callback(.noCredentials, nil) }
+              let credentials = NSKeyedUnarchiver.unarchiveObject(with: data) as? Credentials else { return nil }
+
+        return credentials
+    }
+
+    private func retrieveCredentials(withScope scope: String?, minTTL: Int, parameters: [String: Any] = [:], callback: @escaping (CredentialsManagerError?, Credentials?) -> Void) {
+        guard let credentials = retrieveCredentials(),
+              let expiresIn = credentials.expiresIn else { return callback(.noCredentials, nil) }
         guard self.hasExpired(credentials) ||
-            self.willExpire(credentials, within: minTTL) ||
-            self.hasScopeChanged(credentials, from: scope) else { return callback(nil, credentials) }
+                self.willExpire(credentials, within: minTTL) ||
+                self.hasScopeChanged(credentials, from: scope) else { return callback(nil, credentials) }
         guard let refreshToken = credentials.refreshToken else { return callback(.noRefreshToken, nil) }
 
-        self.authentication.renew(withRefreshToken: refreshToken, scope: scope).start {
-            switch $0 {
-            case .success(let credentials):
-                let newCredentials = Credentials(accessToken: credentials.accessToken,
-                                                 tokenType: credentials.tokenType,
-                                                 idToken: credentials.idToken,
-                                                 refreshToken: credentials.refreshToken ?? refreshToken,
-                                                 expiresIn: credentials.expiresIn,
-                                                 scope: credentials.scope)
-                if self.willExpire(newCredentials, within: minTTL) {
-                    let accessTokenLifetime = Int(expiresIn.timeIntervalSinceNow)
-                    // TODO: On the next major add a new case to CredentialsManagerError
-                    let error = NSError(domain: "The lifetime of the renewed Access Token (\(accessTokenLifetime)s) is less than minTTL requested (\(minTTL)s). Increase the 'Token Expiration' setting of your Auth0 API in the dashboard or request a lower minTTL",
-                        code: -99999,
-                        userInfo: nil)
+        self.authentication
+            .renew(withRefreshToken: refreshToken, scope: scope)
+            .parameters(parameters)
+            .start {
+                switch $0 {
+                case .success(let credentials):
+                    let newCredentials = Credentials(accessToken: credentials.accessToken,
+                                                     tokenType: credentials.tokenType,
+                                                     idToken: credentials.idToken,
+                                                     refreshToken: credentials.refreshToken ?? refreshToken,
+                                                     expiresIn: credentials.expiresIn,
+                                                     scope: credentials.scope)
+                    if self.willExpire(newCredentials, within: minTTL) {
+                        let accessTokenLifetime = Int(expiresIn.timeIntervalSinceNow)
+                        // TODO: On the next major add a new case to CredentialsManagerError
+                        let error = NSError(domain: "The lifetime of the renewed Access Token (\(accessTokenLifetime)s) is less than minTTL requested (\(minTTL)s). Increase the 'Token Expiration' setting of your Auth0 API in the dashboard or request a lower minTTL",
+                                            code: -99999,
+                                            userInfo: nil)
+                        callback(.failedRefresh(error), nil)
+                    } else {
+                        _ = self.store(credentials: newCredentials)
+                        callback(nil, newCredentials)
+                    }
+                case .failure(let error):
                     callback(.failedRefresh(error), nil)
-                } else {
-                    _ = self.store(credentials: newCredentials)
-                    callback(nil, newCredentials)
                 }
-            case .failure(let error):
-                callback(.failedRefresh(error), nil)
             }
-        }
     }
 
     func willExpire(_ credentials: Credentials, within ttl: Int) -> Bool {

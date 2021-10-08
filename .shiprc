@@ -1,0 +1,9 @@
+{
+    "files": {
+        "Auth0/Info.plist": [],
+        "Auth0.podspec": [],
+        "README.md": ["~> {MAJOR}.{MINOR}"]
+    },
+    "postbump": "bundle update",
+    "prefixVersion": false
+}
