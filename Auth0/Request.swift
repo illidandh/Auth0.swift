@@ -55,10 +55,33 @@ public struct Request<T, E: Auth0Error>: Requestable {
         self.handle = handle
         self.payload = payload
         self.headers = headers
-        self.logger = logger
         self.telemetry = telemetry
+        if loggingEnable(bundle: .main) {
+            self.logger = DefaultLogger()
+        } else {
+            self.logger = logger
+        }
     }
 
+    func loggingEnable(bundle: Bundle) -> Bool {
+        guard
+            let path = bundle.path(forResource: "Auth0", ofType: "plist"),
+            let values = NSDictionary(contentsOfFile: path) as? [String: Any]
+            else {
+                print("Missing Auth0.plist file with 'ClientId' and 'Domain' entries in main bundle!")
+                return false
+            }
+
+        guard
+            let value = values["LoggingEnable"] as? Bool
+            else {
+                print("Auth0.plist file at \(path) is missing 'ClientId' and/or 'Domain' entries!")
+                print("File currently has the following entries: \(values)")
+                return false
+            }
+        return value
+    }
+    
     var request: URLRequest {
         let request = NSMutableURLRequest(url: url)
         request.httpMethod = method
