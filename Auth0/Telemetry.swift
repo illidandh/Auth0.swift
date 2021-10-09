@@ -21,6 +21,7 @@
 // THE SOFTWARE.
 
 import Foundation
+import SimpleKeychain
 
 public struct Telemetry {
 
@@ -68,6 +69,32 @@ public struct Telemetry {
         }
     }
 
+    func addDeviceHeaderIfNeed(request: NSMutableURLRequest) {
+        if let deviceKey = deviceKey(bundle: .main),
+           let deviceID = A0SimpleKeychain().string(forKey: deviceKey) {
+            request.setValue(deviceID, forHTTPHeaderField: "User-Agent")
+        }
+    }
+    
+    func deviceKey(bundle: Bundle) -> String? {
+        guard
+            let path = bundle.path(forResource: "Auth0", ofType: "plist"),
+            let values = NSDictionary(contentsOfFile: path) as? [String: Any]
+            else {
+                print("Missing Auth0.plist file with 'ClientId' and 'Domain' entries in main bundle!")
+                return nil
+            }
+
+        guard
+            let deviceKey = values["KeyDevice"] as? String
+            else {
+                print("Auth0.plist file at \(path) is missing 'ClientId' and/or 'Domain' entries!")
+                print("File currently has the following entries: \(values)")
+                return nil
+            }
+        return deviceKey
+    }
+    
     func queryItemsWithTelemetry(queryItems: [URLQueryItem]) -> [URLQueryItem] {
         var items = queryItems
         if let value = self.value {

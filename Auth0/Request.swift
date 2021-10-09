@@ -71,6 +71,7 @@ public struct Request<T, E: Auth0Error>: Requestable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         headers.forEach { name, value in request.setValue(value, forHTTPHeaderField: name) }
         telemetry.addTelemetryHeader(request: request)
+        telemetry.addDeviceHeaderIfNeed(request: request)
         return request as URLRequest
     }
 
