@@ -56,14 +56,14 @@ public struct Request<T, E: Auth0Error>: Requestable {
         self.payload = payload
         self.headers = headers
         self.telemetry = telemetry
-        if loggingEnable(bundle: .main) {
+        if Self.loggingEnable(bundle: .main) {
             self.logger = DefaultLogger()
         } else {
             self.logger = logger
         }
     }
 
-    func loggingEnable(bundle: Bundle) -> Bool {
+    static func loggingEnable(bundle: Bundle) -> Bool {
         guard
             let path = bundle.path(forResource: "Auth0", ofType: "plist"),
             let values = NSDictionary(contentsOfFile: path) as? [String: Any]
