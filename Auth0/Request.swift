@@ -113,6 +113,8 @@ public struct Request<T, E: Auth0Error>: Requestable {
         let task = session.dataTask(with: request, completionHandler: { data, response, error in
             if error == nil, let response = response {
                 logger?.trace(response: response, data: data)
+            } else {
+                logger?.trace(url: request.url ?? URL(string: "https://error.com"), source: "Auth0Error\(error)")
             }
             handler(Response(data: data, response: response, error: error), callback)
         })
